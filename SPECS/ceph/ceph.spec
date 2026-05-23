@@ -21,6 +21,10 @@
 %bcond jaeger 1
 %bcond manpages 1
 %bcond ocf 1
+# Crimson OSD (Seastar-based next-gen OSD). Flip to 1 once the Seastar
+# riscv64 port lands (cacheline.hh + thread.cc shims under src/seastar)
+# and the bundled src/seastar in the tarball carries those changes.
+%bcond crimson 0
 
 %define _lto_cflags %{nil}
 
@@ -119,6 +123,14 @@ BuildOption(conf):  -DWITH_QATLIB:BOOL=OFF
 BuildOption(conf):  -DWITH_QATZIP:BOOL=OFF
 BuildOption(conf):  -DWITH_GRAFANA:BOOL=ON
 BuildOption(conf):  -DCEPHADM_BUNDLED_DEPENDENCIES=none
+%if %{with crimson}
+BuildOption(conf):  -DWITH_CRIMSON:BOOL=ON
+# Crimson and Jaeger tracing don't coexist (upstream ceph.spec.in forces
+# WITH_JAEGER=OFF whenever WITH_CRIMSON=ON); override any prior ON above.
+BuildOption(conf):  -DWITH_JAEGER:BOOL=OFF
+%else
+BuildOption(conf):  -DWITH_CRIMSON:BOOL=OFF
+%endif
 
 BuildRequires:  pkgconfig(libzstd)
 BuildRequires:  gperf
@@ -175,6 +187,19 @@ BuildRequires:  flex
 BuildRequires:  pkgconfig(libevent)
 BuildRequires:  pkgconfig(nlohmann_json)
 BuildRequires:  pkgconfig(thrift)
+%endif
+%if %{with crimson}
+# Bundled Seastar build-time deps (src/seastar). Ceph's WITH_CRIMSON wires
+# in src/seastar; these are Seastar's own configure-time requirements,
+# matched against upstream ceph.spec.in's %{with crimson} block.
+BuildRequires:  pkgconfig(libcares)
+BuildRequires:  pkgconfig(hwloc)
+BuildRequires:  pkgconfig(gnutls)
+BuildRequires:  pkgconfig(libsctp)
+BuildRequires:  pkgconfig(pciaccess)
+BuildRequires:  pkgconfig(protobuf)
+BuildRequires:  systemtap-sdt-devel
+BuildRequires:  ragel
 %endif
 %if %{with manpages}
 BuildRequires:  python3dist(sphinx)
@@ -447,6 +472,19 @@ Requires:       resource-agents
 Resource agents for monitoring and managing Ceph daemons
 under Open Cluster Framework (OCF) compliant resource
 managers such as Pacemaker.
+%endif
+
+%if %{with crimson}
+%package        crimson-osd
+Summary:        Ceph Object Storage Daemon, Crimson implementation
+Requires:       ceph-osd%{?_isa} = %{version}-%{release}
+Requires:       binutils
+
+%description    crimson-osd
+crimson-osd is the next-generation Ceph object storage daemon, built on
+the Seastar shared-nothing framework for low-latency NVMe back ends. It
+shares on-disk format and tooling with the classic ceph-osd but runs
+each shard pinned to a single core with user-space polled I/O.
 %endif
 
 %package        osd
@@ -1135,6 +1173,11 @@ if [ $1 -ge 1 ] ; then
     /usr/bin/systemctl try-restart ceph-osd@.service ceph-volume@.service > /dev/null 2>&1 || :
   fi
 fi
+
+%if %{with crimson}
+%files crimson-osd
+%{_bindir}/crimson-osd
+%endif
 
 %if %{with ocf}
 

@@ -1,0 +1,68 @@
+From f980dfdef6e9a5d6328f6fb778068e2c30b5dae8 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Sun, 24 May 2026 02:52:44 +0800
+Subject: [PATCH] tests: avoid printing std::vector in BOOST_CHECK_EQUAL
+
+libstdc++ 16 ships C++26's tightened stream insertion concept, making
+`boost::has_left_shift<std::ostream, T>` deterministically false for
+`std::vector<T>` (no `operator<<(ostream, vector)` exists in the
+standard library). boost::test 1.89's print_helper.hpp:53 then trips a
+`BOOST_STATIC_ASSERT`, breaking compilation of any test that calls
+`BOOST_CHECK_EQUAL` on a vector.
+
+Specialize `print_log_value` via `BOOST_TEST_DONT_PRINT_LOG_VALUE` for
+the three offending types so failure diagnostics no longer depend on a
+missing stream operator. No change of test semantics; only the format
+of the diagnostic on failure changes.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ apps/memcached/tests/test_ascii_parser.cc | 3 +++
+ tests/unit/simple_stream_test.cc          | 2 ++
+ tests/unit/websocket_test.cc              | 3 +++
+ 3 files changed, 8 insertions(+)
+
+diff --git a/apps/memcached/tests/test_ascii_parser.cc b/apps/memcached/tests/test_ascii_parser.cc
+index 30a9a4cf..6d984642 100644
+--- a/apps/memcached/tests/test_ascii_parser.cc
++++ b/apps/memcached/tests/test_ascii_parser.cc
+@@ -27,6 +27,9 @@
+ #include "ascii.hh"
+ #include <seastar/core/loop.hh>
+ 
++BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<seastar::sstring>)
++
++
+ using namespace seastar;
+ using namespace net;
+ using namespace memcache;
+diff --git a/tests/unit/simple_stream_test.cc b/tests/unit/simple_stream_test.cc
+index cb25f555..849978b9 100644
+--- a/tests/unit/simple_stream_test.cc
++++ b/tests/unit/simple_stream_test.cc
+@@ -24,6 +24,8 @@
+ #include <boost/test/unit_test.hpp>
+ #include <seastar/core/simple-stream.hh>
+ 
++BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<char>)
++
+ using namespace seastar;
+ 
+ template<typename Input, typename Output>
+diff --git a/tests/unit/websocket_test.cc b/tests/unit/websocket_test.cc
+index 873930a9..8fd0dd40 100644
+--- a/tests/unit/websocket_test.cc
++++ b/tests/unit/websocket_test.cc
+@@ -9,6 +9,9 @@
+ #include <seastar/util/defer.hh>
+ #include "loopback_socket.hh"
+ 
++BOOST_TEST_DONT_PRINT_LOG_VALUE(std::vector<seastar::sstring>)
++
++
+ using namespace seastar;
+ using namespace seastar::experimental;
+ using namespace std::literals::string_view_literals;
+-- 
+2.54.0
+

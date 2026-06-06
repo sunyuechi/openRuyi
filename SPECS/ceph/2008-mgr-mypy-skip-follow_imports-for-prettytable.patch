@@ -1,0 +1,27 @@
+From 0c8c5f09b248c5df08755c7e1d7a5cd188ee9b45 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Sun, 7 Jun 2026 22:19:08 +0800
+Subject: [PATCH] mgr/mypy: skip follow_imports for prettytable
+
+With test venvs on system site-packages, mypy picks up the system prettytable (3.4.0+, typed) and flags mgr's add_row(tuple) calls against its list[Any] signature. Skip it.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ src/mypy.ini | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/mypy.ini b/src/mypy.ini
+index 9fe2f82a535..049dd96b3b2 100755
+--- a/src/mypy.ini
++++ b/src/mypy.ini
+@@ -36,6 +36,8 @@ ignore_missing_imports = True
+
+ [mypy-prettytable]
+ ignore_missing_imports = True
++# system site-packages exposes a typed prettytable that flags add_row(tuple)
++follow_imports = skip
+
+ [mypy-jsonpatch]
+ ignore_missing_imports = True
+--
+2.54.0

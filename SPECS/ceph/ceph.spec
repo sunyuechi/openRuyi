@@ -401,6 +401,31 @@ BuildRequires:  pkgconfig(openblas)
 BuildRequires:  promtool
 # cryptography sdist; see gcc-fortran comment above.
 BuildRequires:  rust
+# With CEPH_PYTHON_SYSTEM_SITE=1 (set in %check) the test venvs use system
+# site-packages, so these RPMs satisfy test deps instead of pip building them
+# from sdist (scipy/numpy/cryptography have no riscv64 wheels). Listed only for
+# deps openRuyi ships at a version the tests accept; the rest still come via pip.
+BuildRequires:  python3dist(scipy)
+BuildRequires:  python3dist(numpy)
+BuildRequires:  python3dist(cryptography)
+#BuildRequires:  python3dist(cherrypy)  # openRuyi gap: cherrypy RPM auto-Requires cheroot/portend/zc.lockfile/jaraco.collections (Requires-Dist); none packaged yet -- re-enable when they are
+BuildRequires:  python3dist(jsonpatch)
+BuildRequires:  python3dist(jinja2)
+BuildRequires:  python3dist(pyopenssl)
+BuildRequires:  python3dist(werkzeug)
+BuildRequires:  python3dist(bcrypt)
+BuildRequires:  python3dist(requests)
+BuildRequires:  python3dist(mypy)
+# Also test deps, but not yet packaged in openRuyi -- pip still builds these.
+# Uncomment each once openRuyi ships it so the system RPM is used instead.
+#BuildRequires:  python3dist(pecan)
+#BuildRequires:  python3dist(requests-mock)
+#BuildRequires:  python3dist(natsort)
+#BuildRequires:  python3dist(kubernetes)
+#BuildRequires:  python3dist(asyncmock)
+#BuildRequires:  python3dist(types-pyyaml)
+#BuildRequires:  python3dist(cheroot)     # tests want cheroot~=10.0
+#BuildRequires:  python3dist(pyfakefs)    # cephadm wants >=5.7,<6 (patch 2002)
 %endif
 
 Requires:       ceph-osd%{?_isa} = %{version}-%{release}
@@ -456,6 +481,8 @@ Requires:       luarocks
 1020-build-link-legacy-option-headers-from-targets-racing.patch
 # https://github.com/scylladb/seastar/pull/3441
 1021-cmake-guard-DPDK-dpdk-against-redefinition-in-Finddp.patch
+# https://github.com/ceph/ceph/pull/69316
+1022-test-venvs-optional-system-site-packages.patch
 
 # Bump pylint 2.6.0 -> 2.17.7 for Python 3.13 / wrapt compat.
 2001-monitoring-ceph-mixin-bump-pylint.patch
@@ -467,6 +494,8 @@ Requires:       luarocks
 2004-test-crimson-messenger-thrash-bump-memory.patch
 # cephadm tox: drop flake8 git ls-files registry assertions (no .git in tarball).
 2007-cephadm-tox-drop-git-lsfiles-checks.patch
+# mgr mypy: skip follow_imports so the typed system prettytable (under system site-packages) doesn't flag add_row(tuple).
+2008-mgr-mypy-skip-follow_imports-for-prettytable.patch
 
 %description
 Ceph is a massively scalable, open-source, distributed storage system that runs
@@ -842,6 +871,9 @@ EOF
 
 %check
 %if %{with make_check}
+# Use system site-packages in the test venvs (patch 1022) so the python3dist
+# BuildRequires above satisfy test deps instead of pip rebuilding from sdist.
+export CEPH_PYTHON_SYSTEM_SITE=1
 # unittest_* targets are EXCLUDE_FROM_ALL; build the `tests` aggregate before ctest.
 %cmake_build --target tests
 # Stale golden PromQL values pinned to an older prometheus

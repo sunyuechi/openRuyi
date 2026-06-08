@@ -482,7 +482,7 @@ Requires:       luarocks
 # https://github.com/scylladb/seastar/pull/3441
 1021-cmake-guard-DPDK-dpdk-against-redefinition-in-Finddp.patch
 # https://github.com/ceph/ceph/pull/69316
-1022-test-venvs-optional-system-site-packages.patch
+1022-mypy-skip-follow_imports-for-prettytable.patch
 
 # Bump pylint 2.6.0 -> 2.17.7 for Python 3.13 / wrapt compat.
 2001-monitoring-ceph-mixin-bump-pylint.patch

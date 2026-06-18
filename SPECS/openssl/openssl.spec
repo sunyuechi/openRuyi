@@ -69,6 +69,13 @@ This package contains the HTML version of the API documentation and man
 pages for OpenSSL.
 
 %conf
+%ifarch riscv64
+# GCC riscv64 auto-vectorizes argon2 rotates into Zvbb/Zvkb vror.vv, which miscomputes
+# nondeterministically on SG2044 (LUKS keyslot -EPERM); drop zvbb/zvkb (appended last so it wins).
+riscv_march=$(printf 'int main(){}' | %{__cc} -march=rva23u64 -S -o - -xc - 2>/dev/null | \
+    grep -oP '\.attribute arch, "\K[^"]+' | sed -E 's/_zvbb[0-9]+p[0-9]+//;s/_zvkb[0-9]+p[0-9]+//')
+%endif
+
 ./Configure \
     --prefix=%{_prefix} \
     --libdir=%{_lib} \
@@ -95,7 +102,8 @@ pages for OpenSSL.
     -D_GNU_SOURCE \
     -DOPENSSL_PEDANTIC_ZEROIZATION \
     -DOPENSSL_NO_BUF_FREELISTS \
-    $(getconf LFS_CFLAGS)
+    $(getconf LFS_CFLAGS) \
+    ${riscv_march:+-march=$riscv_march}
 
 
 sed -i 's|^hardcode_libdir_flag_spec=.*|hardcode_libdir_flag_spec=""|g' Makefile

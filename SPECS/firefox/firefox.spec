@@ -305,6 +305,10 @@ Requires:       ffmpeg
 2003-blindly-set-rust-rva23-target-when-needed.patch
 2005-add-riscv64-support-for-crash-context.patch
 2006-enable-crashreporter-for-riscv64.patch
+# https://github.com/ggml-org/ggml/pull/1571
+# Rebased onto third_party/llama.cpp (ggml-cpu.c is ggml-cpu-c.c there);
+# arch/riscv/repack.cpp and llamafile/sgemm.cpp hunks dropped, not vendored.
+2007-riscv64-ggml-gate-RVV-code-on-the-target-extension.patch
 
 %description
 Mozilla Firefox is a free, open-source web browser developed by

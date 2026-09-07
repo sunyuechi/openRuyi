@@ -42,6 +42,9 @@ BuildRequires:  pkgconfig(librdmacm)
 BuildRequires:  pkgconfig(libiscsi)
 BuildRequires:  pkgconfig(liburing)
 BuildRequires:  ceph-devel
+# --with-sma generates the SMA gRPC stubs with grpc_tools.protoc
+BuildRequires:  python3dist(grpcio)
+BuildRequires:  python3dist(grpcio-tools)
 
 Requires:       dpdk
 Requires:       numactl
@@ -64,6 +67,10 @@ applications.
 2001-with-system-isal.patch
 # Add support for ISA-L_crypto library on RISC-V 64
 2002-ISAL_CRYPTO.patch
+# configshell-fb 2.0 dropped the configshell_fb alias; spdk-cli only knew that name
+2003-spdkcli-import-configshell-when-configshell_fb-is-gone.patch
+# mcp 2.0 renamed mcp.server.fastmcp.FastMCP to mcp.server.mcpserver.MCPServer
+2004-mcp-fall-back-to-mcp.server.mcpserver-on-mcp-2.0.patch
 
 %package        devel
 Summary:        Storage Performance Development Kit development files
@@ -85,6 +92,13 @@ Development Kit.
 %package        tools
 Summary:        Storage Performance Development Kit tools files
 Requires:       %{name} = %{version}-%{release}
+# python/pyproject.toml optional-dependencies: "cli", "sma" and "mcp" are
+# what spdk-cli, spdk-sma and spdk-mcp import at startup.
+Requires:       python3dist(configshell-fb)
+Requires:       python3dist(grpcio)
+Requires:       python3dist(protobuf)
+Requires:       python3dist(pyyaml)
+Requires:       python3dist(mcp)
 BuildArch:      noarch
 
 %description    tools
@@ -103,6 +117,7 @@ export CXX="g++ -fuse-ld=bfd"
     --with-iscsi-initiator \
     --with-uring \
     --with-rbd \
+    --with-sma \
     --disable-examples \
     --disable-tests \
     --disable-unit-tests \

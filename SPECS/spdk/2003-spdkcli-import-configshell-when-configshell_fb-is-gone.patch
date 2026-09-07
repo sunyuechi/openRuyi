@@ -1,0 +1,72 @@
+From ce88a121a22536c45b7f3816b30147270da895a8 Mon Sep 17 00:00:00 2001
+From: Sun Yuechi <sunyuechi@iscas.ac.cn>
+Date: Mon, 7 Sep 2026 06:12:50 -0700
+Subject: [PATCH 2003/2004] spdkcli: import configshell when the configshell_fb
+ alias is gone
+
+configshell-fb 2.0 ships its package as "configshell" only; the
+"configshell_fb" name that 1.x also installed no longer exists, so
+spdk-cli dies with ModuleNotFoundError on a system with configshell-fb
+2.0.x. Try the old name first, fall back to the new one.
+
+Signed-off-by: Sun Yuechi <sunyuechi@iscas.ac.cn>
+---
+ python/spdk/spdkcli/ui_node.py       | 6 +++++-
+ python/spdk/spdkcli/ui_node_iscsi.py | 6 +++++-
+ scripts/spdkcli.py                   | 6 +++++-
+ 3 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/python/spdk/spdkcli/ui_node.py b/python/spdk/spdkcli/ui_node.py
+index cef5d2f..c951acb 100644
+--- a/python/spdk/spdkcli/ui_node.py
++++ b/python/spdk/spdkcli/ui_node.py
+@@ -2,7 +2,11 @@
+ #  Copyright (C) 2018 Intel Corporation.
+ #  All rights reserved.
+ 
+-from configshell_fb import ConfigNode, ExecutionError
++try:
++    from configshell_fb import ConfigNode, ExecutionError
++except ImportError:
++    # configshell-fb 2.0 dropped the configshell_fb alias
++    from configshell import ConfigNode, ExecutionError
+ from uuid import UUID
+ from ..rpc.client import JSONRPCException
+ import json
+diff --git a/python/spdk/spdkcli/ui_node_iscsi.py b/python/spdk/spdkcli/ui_node_iscsi.py
+index ebfd9e0..b9a4735 100644
+--- a/python/spdk/spdkcli/ui_node_iscsi.py
++++ b/python/spdk/spdkcli/ui_node_iscsi.py
+@@ -2,7 +2,11 @@
+ #  Copyright (C) 2018 Intel Corporation.
+ #  All rights reserved.
+ 
+-from configshell_fb import ExecutionError
++try:
++    from configshell_fb import ExecutionError
++except ImportError:
++    # configshell-fb 2.0 dropped the configshell_fb alias
++    from configshell import ExecutionError
+ from ..rpc.client import JSONRPCException
+ from .ui_node import UINode
+ 
+diff --git a/scripts/spdkcli.py b/scripts/spdkcli.py
+index 6926848..db2b17a 100755
+--- a/scripts/spdkcli.py
++++ b/scripts/spdkcli.py
+@@ -7,7 +7,11 @@
+ import os
+ import sys
+ import argparse
+-from configshell_fb import ConfigShell, ExecutionError
++try:
++    from configshell_fb import ConfigShell, ExecutionError
++except ImportError:
++    # configshell-fb 2.0 dropped the configshell_fb alias
++    from configshell import ConfigShell, ExecutionError
+ from pyparsing import (alphanums, Optional, Suppress, Word, Regex,
+                        removeQuotes, dblQuotedString, OneOrMore, locatedExpr)
+ 
+-- 
+2.55.0
+

@@ -22,10 +22,14 @@ Source0:        https://github.com/prometheus/prometheus/archive/v%{version}/%{n
 # (mirroring the minio / picoclaw / aardvark-dns convention). Then convert the
 # line below to the `#!RemoteAsset:  sha256:<hash>` form with the real digest.
 Source1:        %{name}-v%{version}-vendor.tar.gz
+Source2:        prometheus.service
+Source3:        prometheus.sysusers
 BuildSystem:    golang
 
 BuildRequires:  go
 BuildRequires:  go-rpm-macros
+BuildRequires:  systemd-rpm-macros
+%{?systemd_requires}
 
 Provides:       promtool = %{version}-%{release}
 
@@ -35,13 +39,9 @@ from configured targets at given intervals, evaluates rule expressions,
 displays the results, and can trigger alerts when specified conditions are
 observed.
 
-This package currently ships only the promtool command-line utility, used
-to validate Prometheus configuration files, lint and unit-test alerting
-and recording rules, inspect TSDB blocks, and query running Prometheus
-servers. The prometheus server binary is intentionally not built here
-because it embeds a React-based web UI whose assets require an npm
-toolchain that is not yet available in openRuyi; once npm is packaged
-this spec can be extended to build the server as well.
+The server is built without the React web UI, whose assets need an npm
+toolchain openRuyi does not have yet: scraping, storage, rules and the
+HTTP API work, the browser UI does not.
 
 %prep -a
 %setup -q -D -T -a 1 -n %{_name}-%{version}
@@ -52,8 +52,7 @@ export GO111MODULE=on
 # internal/tools/ web/ui/mantine-ui/ in as sibling modules with their own
 # go.mod files; building those would require workspace-aware vendoring (and
 # the React/mantine UI on top). The vendor tarball is generated from the
-# root go.mod alone and only covers what ./cmd/promtool needs, so build
-# with GOWORK=off to match.
+# root go.mod alone, so build with GOWORK=off to match.
 export GOWORK=off
 export GOPATH=%{_builddir}/go:%{_datadir}/gocode
 export GOFLAGS="-buildmode=pie -mod=vendor -trimpath -modcacherw"
@@ -66,9 +65,15 @@ LDFLAGS="$LDFLAGS -X github.com/prometheus/common/version.Branch=tarball"
 LDFLAGS="$LDFLAGS -X github.com/prometheus/common/version.BuildUser=openRuyi"
 
 go build -v -ldflags "$LDFLAGS" -o promtool ./cmd/promtool
+go build -v -ldflags "$LDFLAGS" -o prometheus ./cmd/prometheus
 
 %install
 install -D -m 0755 promtool %{buildroot}%{_bindir}/promtool
+install -D -m 0755 prometheus %{buildroot}%{_bindir}/prometheus
+install -D -m 0644 documentation/examples/prometheus.yml %{buildroot}%{_sysconfdir}/prometheus/prometheus.yml
+install -D -m 0644 %{SOURCE2} %{buildroot}%{_unitdir}/prometheus.service
+install -D -m 0644 %{SOURCE3} %{buildroot}%{_sysusersdir}/prometheus.conf
+install -d -m 0750 %{buildroot}%{_localstatedir}/lib/prometheus
 
 %check
 # Upstream's cmd/promtool tests need an active tsdb test fixture tree and
@@ -79,10 +84,28 @@ export GOPATH=%{_builddir}/go:%{_datadir}/gocode
 export GOFLAGS="-mod=vendor"
 go test ./cmd/promtool/... || :
 
+%pre
+%sysusers_create_package %{name} %{SOURCE3}
+
+%post
+%systemd_post prometheus.service
+
+%preun
+%systemd_preun prometheus.service
+
+%postun
+%systemd_postun_with_restart prometheus.service
+
 %files
 %license LICENSE NOTICE
 %doc README.md CHANGELOG.md
 %{_bindir}/promtool
+%{_bindir}/prometheus
+%dir %{_sysconfdir}/prometheus
+%config(noreplace) %{_sysconfdir}/prometheus/prometheus.yml
+%{_unitdir}/prometheus.service
+%{_sysusersdir}/prometheus.conf
+%attr(0750,prometheus,prometheus) %dir %{_localstatedir}/lib/prometheus
 
 %changelog
 %autochangelog

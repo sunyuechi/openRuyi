@@ -195,6 +195,11 @@ BuildSystem:    autotools
 
 # Patch fixing ACPI table generation for KVM with PLIC emu
 Patch1:         0001-FROMLIST-hw-riscv-virt-acpi-build-Fix-RINTC-PLIC-con.patch
+# Secondary vCPUs stay stopped after KVM live migration
+# From https://gitlab.com/qemu-project/qemu/-/commit/7df9aa5f6d600584c556776505253e849b3902ee
+Patch1000:      1000-target-riscv-kvm-Synchronize-privilege-mode.patch
+# From https://gitlab.com/qemu-project/qemu/-/commit/ddac7cfb00ad771f6ef3450fff2d09e749fdbaf9
+Patch1001:      1001-target-riscv-kvm-Preserve-MP-state-across-migration.patch
 
 BuildRequires:  hostname
 BuildRequires:  meson

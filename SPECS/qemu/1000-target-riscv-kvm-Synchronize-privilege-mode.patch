@@ -1,0 +1,54 @@
+From 12d233d12a164d130a95ae0cded8800f0a60cba5 Mon Sep 17 00:00:00 2001
+From: Xie Bo <xb@ultrarisc.com>
+Date: Sat, 8 Aug 2026 20:51:56 +0800
+Subject: [PATCH 1/2] target/riscv/kvm: Synchronize privilege mode
+
+The KVM core register synchronization currently omits the vCPU privilege
+mode. As a result, env.priv can be stale when the migration stream is saved
+and the destination can restore the vCPU in the wrong mode.
+
+Read and write the KVM core mode register together with the other core
+registers. The generic RISC-V CPU VMState already carries env.priv, so no
+migration format change is required.
+
+Signed-off-by: Xie Bo <xb@ultrarisc.com>
+Reviewed-by: Daniel Henrique Barboza <daniel.barboza@oss.qualcomm.com>
+Message-ID: <20260808125157.1220511-2-xb@ultrarisc.com>
+Signed-off-by: Alistair Francis <alistair.francis@wdc.com>
+---
+ target/riscv/kvm/kvm-cpu.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/target/riscv/kvm/kvm-cpu.c b/target/riscv/kvm/kvm-cpu.c
+index b047ffa9c..42b90b2fb 100644
+--- a/target/riscv/kvm/kvm-cpu.c
++++ b/target/riscv/kvm/kvm-cpu.c
+@@ -595,6 +595,12 @@ static int kvm_riscv_get_regs_core(CPUState *cs)
+     }
+     env->pc = reg;
+ 
++    ret = kvm_get_one_reg(cs, RISCV_CORE_REG(mode), &reg);
++    if (ret) {
++        return ret;
++    }
++    env->priv = reg;
++
+     for (i = 1; i < 32; i++) {
+         uint64_t id = KVM_RISCV_REG_ID_ULONG(KVM_REG_RISCV_CORE, i);
+         ret = kvm_get_one_reg(cs, id, &reg);
+@@ -620,6 +626,12 @@ static int kvm_riscv_put_regs_core(CPUState *cs)
+         return ret;
+     }
+ 
++    reg = env->priv;
++    ret = kvm_set_one_reg(cs, RISCV_CORE_REG(mode), &reg);
++    if (ret) {
++        return ret;
++    }
++
+     for (i = 1; i < 32; i++) {
+         uint64_t id = KVM_RISCV_REG_ID_ULONG(KVM_REG_RISCV_CORE, i);
+         reg = env->gpr[i];
+-- 
+2.56.0
+

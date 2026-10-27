@@ -1,0 +1,220 @@
+From ea939111d6731aaac047cc2d133376cf4b0b41cc Mon Sep 17 00:00:00 2001
+From: Xie Bo <xb@ultrarisc.com>
+Date: Sat, 8 Aug 2026 20:51:57 +0800
+Subject: [PATCH 2/2] target/riscv/kvm: Preserve MP state across migration
+
+RISC-V KVM initializes secondary vCPUs in KVM_MP_STATE_STOPPED, but QEMU
+does not save their runtime MP state. A destination therefore retains reset
+MP state after migration and cannot reliably resume all vCPUs.
+
+Save KVM_GET_MP_STATE in a capability-gated KVM VMState subsection and
+restore it on KVM_PUT_FULL_STATE. Keep the existing reset initialization
+path unchanged. Track whether the subsection was loaded so streams where
+the subsection is absent retain the destination reset behavior.
+
+Bump the RISC-V CPU VMState version and minimum version to 12 for the new
+pre_load hook and KVM MP-state subsection. Keep the subsection out of KVM
+migration streams when the host does not support the MP-state capability.
+
+Signed-off-by: Xie Bo <xb@ultrarisc.com>
+Reviewed-by: Daniel Henrique Barboza <daniel.barboza@oss.qualcomm.com>
+Message-ID: <20260808125157.1220511-3-xb@ultrarisc.com>
+Signed-off-by: Alistair Francis <alistair.francis@wdc.com>
+(cherry picked from commit ddac7cfb00ad, adjusted for the 11.0.1
+ context: the reset path still has the if/else form, machine.c
+ includes differ)
+---
+ target/riscv/cpu.h           |  4 +++
+ target/riscv/kvm/kvm-cpu.c   | 50 ++++++++++++++++++++++++------------
+ target/riscv/kvm/kvm_riscv.h |  2 +-
+ target/riscv/machine.c       | 49 +++++++++++++++++++++++++++++++++--
+ 4 files changed, 85 insertions(+), 20 deletions(-)
+
+diff --git a/target/riscv/cpu.h b/target/riscv/cpu.h
+index 35d1f6362..62d69a4d1 100644
+--- a/target/riscv/cpu.h
++++ b/target/riscv/cpu.h
+@@ -498,6 +498,10 @@ struct CPUArchState {
+     uint64_t kvm_timer_compare;
+     uint64_t kvm_timer_state;
+     uint64_t kvm_timer_frequency;
++
++    /* KVM multiprocessor state */
++    uint32_t kvm_mp_state;
++    bool kvm_mp_state_loaded;
+ #endif /* CONFIG_KVM */
+ 
+     /* RNMI */
+diff --git a/target/riscv/kvm/kvm-cpu.c b/target/riscv/kvm/kvm-cpu.c
+index 42b90b2fb..01612e490 100644
+--- a/target/riscv/kvm/kvm-cpu.c
++++ b/target/riscv/kvm/kvm-cpu.c
+@@ -1362,25 +1362,35 @@ int kvm_arch_get_registers(CPUState *cs, Error **errp)
+         return ret;
+     }
+ 
++    if (cap_has_mp_state) {
++        struct kvm_mp_state mp_state;
++
++        ret = kvm_vcpu_ioctl(cs, KVM_GET_MP_STATE, &mp_state);
++        if (ret) {
++            return ret;
++        }
++        RISCV_CPU(cs)->env.kvm_mp_state = mp_state.mp_state;
++    }
++
+     return ret;
+ }
+ 
+-int kvm_riscv_sync_mpstate_to_kvm(RISCVCPU *cpu, int state)
++bool kvm_riscv_has_mp_state(void)
+ {
+-    if (cap_has_mp_state) {
+-        struct kvm_mp_state mp_state = {
+-            .mp_state = state
+-        };
++    return cap_has_mp_state;
++}
+ 
+-        int ret = kvm_vcpu_ioctl(CPU(cpu), KVM_SET_MP_STATE, &mp_state);
+-        if (ret) {
+-            fprintf(stderr, "%s: failed to sync MP_STATE %d/%s\n",
+-                    __func__, ret, strerror(-ret));
+-            return -1;
+-        }
++static int kvm_riscv_put_mp_state(CPUState *cs)
++{
++    struct kvm_mp_state mp_state = {
++        .mp_state = RISCV_CPU(cs)->env.kvm_mp_state,
++    };
++
++    if (!cap_has_mp_state) {
++        return 0;
+     }
+ 
+-    return 0;
++    return kvm_vcpu_ioctl(cs, KVM_SET_MP_STATE, &mp_state);
+ }
+ 
+ int kvm_arch_put_registers(CPUState *cs, KvmPutState level, Error **errp)
+@@ -1408,12 +1418,18 @@ int kvm_arch_put_registers(CPUState *cs, KvmPutState level, Error **errp)
+     }
+ 
+     if (KVM_PUT_RESET_STATE == level) {
+-        RISCVCPU *cpu = RISCV_CPU(cs);
+-        if (cs->cpu_index == 0) {
+-            ret = kvm_riscv_sync_mpstate_to_kvm(cpu, KVM_MP_STATE_RUNNABLE);
+-        } else {
+-            ret = kvm_riscv_sync_mpstate_to_kvm(cpu, KVM_MP_STATE_STOPPED);
++        CPURISCVState *env = &RISCV_CPU(cs)->env;
++
++        env->kvm_mp_state = cs->cpu_index == 0 ? KVM_MP_STATE_RUNNABLE
++                                               : KVM_MP_STATE_STOPPED;
++        env->kvm_mp_state_loaded = false;
++        ret = kvm_riscv_put_mp_state(cs);
++        if (ret) {
++            return ret;
+         }
++    } else if (KVM_PUT_FULL_STATE == level &&
++               RISCV_CPU(cs)->env.kvm_mp_state_loaded) {
++        ret = kvm_riscv_put_mp_state(cs);
+         if (ret) {
+             return ret;
+         }
+diff --git a/target/riscv/kvm/kvm_riscv.h b/target/riscv/kvm/kvm_riscv.h
+index b2bcd1041..61eaa1244 100644
+--- a/target/riscv/kvm/kvm_riscv.h
++++ b/target/riscv/kvm/kvm_riscv.h
+@@ -28,7 +28,7 @@ void kvm_riscv_aia_create(MachineState *machine, uint64_t group_shift,
+                           uint64_t aplic_base, uint64_t imsic_base,
+                           uint64_t guest_num);
+ void riscv_kvm_aplic_request(void *opaque, int irq, int level);
+-int kvm_riscv_sync_mpstate_to_kvm(RISCVCPU *cpu, int state);
++bool kvm_riscv_has_mp_state(void);
+ void riscv_kvm_cpu_finalize_features(RISCVCPU *cpu, Error **errp);
+ uint64_t kvm_riscv_get_timebase_frequency(RISCVCPU *cpu);
+ 
+diff --git a/target/riscv/machine.c b/target/riscv/machine.c
+index 09c032a87..847e09d14 100644
+--- a/target/riscv/machine.c
++++ b/target/riscv/machine.c
+@@ -23,6 +23,9 @@
+ #include "migration/cpu.h"
+ #include "exec/icount.h"
+ #include "debug.h"
++#ifdef CONFIG_KVM
++#include "kvm/kvm_riscv.h"
++#endif
+ 
+ static bool pmp_needed(void *opaque)
+ {
+@@ -216,6 +219,44 @@ static const VMStateDescription vmstate_kvmtimer = {
+         VMSTATE_END_OF_LIST()
+     }
+ };
++
++static int riscv_cpu_kvm_pre_load(void *opaque)
++{
++    RISCVCPU *cpu = opaque;
++
++    cpu->env.kvm_mp_state_loaded = false;
++    return 0;
++}
++
++static bool kvm_mp_state_needed(void *opaque)
++{
++    return kvm_enabled() && kvm_riscv_has_mp_state();
++}
++
++static int kvm_mp_state_post_load(void *opaque, int version_id)
++{
++    RISCVCPU *cpu = opaque;
++    CPURISCVState *env = &cpu->env;
++
++    if (!kvm_enabled() || !kvm_riscv_has_mp_state()) {
++        return -ENOTSUP;
++    }
++
++    env->kvm_mp_state_loaded = true;
++    return 0;
++}
++
++static const VMStateDescription vmstate_kvm_mp_state = {
++    .name = "cpu/kvm-mp-state",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = kvm_mp_state_needed,
++    .post_load = kvm_mp_state_post_load,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT32(env.kvm_mp_state, RISCVCPU),
++        VMSTATE_END_OF_LIST()
++    }
++};
+ #endif
+ 
+ static bool debug_needed(void *opaque)
+@@ -425,8 +466,11 @@ static const VMStateDescription vmstate_sstc = {
+ 
+ const VMStateDescription vmstate_riscv_cpu = {
+     .name = "cpu",
+-    .version_id = 11,
+-    .minimum_version_id = 11,
++    .version_id = 12,
++    .minimum_version_id = 12,
++#ifdef CONFIG_KVM
++    .pre_load = riscv_cpu_kvm_pre_load,
++#endif
+     .post_load = riscv_cpu_post_load,
+     .fields = (const VMStateField[]) {
+         VMSTATE_UINTTL_ARRAY(env.gpr, RISCVCPU, 32),
+@@ -490,6 +534,7 @@ const VMStateDescription vmstate_riscv_cpu = {
+         &vmstate_rv128,
+ #ifdef CONFIG_KVM
+         &vmstate_kvmtimer,
++        &vmstate_kvm_mp_state,
+ #endif
+         &vmstate_envcfg,
+         &vmstate_debug,
+-- 
+2.56.0
+
